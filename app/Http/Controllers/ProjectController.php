@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+
+
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Intervention\Image\Facades\Image;
-
+use Spatie\Image\Image;
+use Spatie\Image\Enums\ImageFormat;
 
 
 
@@ -56,8 +58,11 @@ class ProjectController extends Controller
      * Store a newly created resource in storage.
      */
 
+
+
     public function store(Request $request)
     {
+        // Simpan data proyek
         $storedProject = [
             'category_id' => $request->input('category_id'),
             'name' => $request->input('name'),
@@ -67,40 +72,30 @@ class ProjectController extends Controller
             'status' => $request->input('status'),
         ];
 
-        // Simpan proyek dan dapatkan ID
         $projectId = DB::table('projects')->insertGetId($storedProject);
 
         // Periksa apakah ada gambar
+        // Periksa apakah ada gambar yang diunggah
         if ($request->hasFile('images')) {
             foreach ($request->file('images') as $image) {
-                // Buka gambar dengan Intervention Image
-                $compressedImage = Image::make($image)
-                    ->encode('webp', 80) // Konversi ke WebP dengan kualitas 80%
-                    ->resize(1200, null, function ($constraint) {
-                        $constraint->aspectRatio(); // Jaga rasio aspek
-                        $constraint->upsize(); // Hindari pembesaran gambar
-                    });
-
-                // Periksa ukuran dan ulangi jika masih di atas 300KB
-                $quality = 80;
-                while (strlen($compressedImage) > 300 * 1024 && $quality > 10) {
-                    $quality -= 10;
-                    $compressedImage = Image::make($image)
-                        ->encode('webp', $quality)
-                        ->resize(1200, null, function ($constraint) {
-                            $constraint->aspectRatio();
-                            $constraint->upsize();
-                        });
-                }
-
-                // Simpan ke storage
+                // Tentukan nama file dan path tujuan
                 $imageName = 'projects/' . uniqid() . '.webp';
-                Storage::put('public/' . $imageName, $compressedImage);
+                $compressedPath = storage_path('app/public/' . $imageName);
 
-                // Simpan URL ke database
+                // Ambil konten gambar langsung dari request
+                $image->storeAs('public/projects', basename($compressedPath)); // Simpan sementara
+
+                // Proses gambar langsung dari file yang diunggah
+                Image::load($image->getPathname())
+                    ->format(ImageFormat::Webp)
+                    ->width(1200) // Resize agar maksimal 1200px lebar
+                    ->optimize()  // Kompres otomatis
+                    ->save($compressedPath);
+
+                // Simpan ke database
                 DB::table('image_projects')->insert([
                     'project_id' => $projectId,
-                    'urlImage' => Storage::url($imageName)
+                    'urlImage' => Storage::url($imageName),
                 ]);
             }
         }
@@ -110,6 +105,7 @@ class ProjectController extends Controller
             'message' => 'Project and images stored successfully!',
         ], 200);
     }
+
 
 
     /**
